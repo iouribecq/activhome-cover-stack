@@ -393,7 +393,20 @@
   class ActivhomeCoverStack extends HTMLElement {
     set hass(hass) {
       this._hass = hass;
-      this._render();
+
+      // ✅ iOS stability: do NOT re-render the whole DOM on every hass update
+      // Full DOM replacement can cause Safari/WebView to snap scroll position.
+      if (!this.shadowRoot) return;
+
+      // First render (or if config not set yet)
+      if (!this._config || !this._didRenderOnce) {
+        this._render();
+        this._didRenderOnce = true;
+        return;
+      }
+
+      // Light update only
+      this._updateFromHass();
     }
 
     setConfig(config) {
@@ -688,16 +701,18 @@ const presetCss = stylePresetCss(this._config.style);
         const coverVariant = normalizeCoverVariant(it?.cover_variant);
 
         let iconSrc = "";
-        let name =
+        const baseName =
           (it?.name || "").trim() ||
           (stateObj?.attributes?.friendly_name || "") ||
           entityId;
+
+        let displayName = baseName;
 
         if (coverVariant === "store_banne") {
           // Same icon for open/closed + state appended to name (no dash)
           iconSrc = `/local/community/activhome-icons/icons/storebanne-unique.svg?v=1`;
           const etat = getBanneEtat(stateObj);
-          if (etat) name = `${name} ${etat}`;
+          if (etat) displayName = `${baseName} ${etat}`;
         } else {
           const pos = stateObj?.attributes?.current_position ?? 0;
           const file = getStoreIconFileFromPosition(pos);
@@ -707,6 +722,8 @@ const presetCss = stylePresetCss(this._config.style);
         const row = document.createElement("div");
         row.className = "row";
         row.dataset.entity = entityId;
+        row.dataset.variant = coverVariant;
+        row.dataset.baseName = baseName;
 
         // Per-item font size:
         // - if item.font_size: use it
@@ -721,7 +738,7 @@ const presetCss = stylePresetCss(this._config.style);
           </button>
 
           <button class="nameBtn" data-action="name" aria-label="Navigate or more-info" tabindex="-1" type="button">
-            <span class="name">${escapeHtml(name)}</span>
+            <span class="name">${escapeHtml(displayName)}</span>
           </button>
 
           <button class="actionBtn" data-action="open" aria-label="Open" tabindex="-1" type="button">
@@ -836,10 +853,63 @@ const presetCss = stylePresetCss(this._config.style);
         }
       }
 
+      this._didRenderOnce = true;
+
       // Ensure actions sizing matches current width (also after re-render)
       this._applyResponsiveActions();
     }
 
+
+
+    _updateFromHass() {
+      const hass = this._hass;
+      if (!hass || !this.shadowRoot || !this._config) return;
+
+      // Keep optional theme vars in sync with current mode (light/dark)
+      const cardEl = this.shadowRoot.querySelector("ha-card");
+      const themeName = (this._config.theme || "").trim();
+      if (cardEl) {
+        if (themeName) {
+          this._appliedThemeVars = _applyTheme(cardEl, hass, themeName, this._appliedThemeVars);
+        } else if (this._appliedThemeVars) {
+          _clearTheme(cardEl, this._appliedThemeVars);
+          this._appliedThemeVars = null;
+        }
+      }
+
+      const rows = this.shadowRoot.querySelectorAll(".row");
+      rows.forEach((row) => {
+        const entityId = row?.dataset?.entity;
+        if (!entityId) return;
+
+        const stateObj = hass.states?.[entityId];
+        const variant = row.dataset.variant || "store";
+
+        // Update name (store_banne appends state)
+        const nameSpan = row.querySelector(".name");
+        if (nameSpan) {
+          if (variant === "store_banne") {
+            const base = row.dataset.baseName || nameSpan.textContent || "";
+            const etat = getBanneEtat(stateObj);
+            nameSpan.textContent = etat ? `${base} ${etat}` : base;
+          }
+        }
+
+        // Update icon for classic store (dynamic svg based on current_position)
+        if (variant !== "store_banne") {
+          const img = row.querySelector("img.iconImg");
+          if (img) {
+            const pos = stateObj?.attributes?.current_position ?? 0;
+            const file = getStoreIconFileFromPosition(pos);
+            const src = `/local/community/activhome-icons/icons/store_${file}.svg?v=1`;
+            if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+          }
+        }
+      });
+
+      // Also keep responsive sizes in sync
+      this._applyResponsiveActions();
+    }
     static getConfigElement() {
       return document.createElement("activhome-cover-stack-editor");
     }
