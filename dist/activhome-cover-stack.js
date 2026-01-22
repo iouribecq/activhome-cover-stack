@@ -418,7 +418,7 @@
       const row_height = config.row_height;
       const target_total_height = config.target_total_height;
       const target_total_includes_padding = (config.target_total_includes_padding !== false);
-      this._config = { ...config, style, height_mode, row_height, target_total_height, target_total_includes_padding };
+      this._config = { ...config, style, height_mode, row_height, target_total_height, target_total_includes_padding, arrows_button_width: config.arrows_button_width, stop_button_width: config.stop_button_width };
       this._render();
     }
 
@@ -444,33 +444,45 @@
         this._roActions = null;
       }
     }
-
     _applyResponsiveActions() {
-      // Default (large / iPad Pro / desktop): 60px actions, 32px icons
-      const w = this.getBoundingClientRect?.().width || 0;
+          // Default (large / iPad Pro / desktop): 60px actions, 32px icons
+          const w = this.getBoundingClientRect?.().width || 0;
 
-      let actionW = 60;
-      let gap = 6;
-      let icon = 32;
+          let actionW = 60;
+          let gap = 6;
+          let icon = 32;
 
-      // iPad 3 columns / medium: tighten a bit
-      if (w > 0 && w < 520) {
-        actionW = 52;
-        gap = 5;
-        icon = 28;
-      }
+          // iPad 3 columns / medium: tighten a bit
+          if (w > 0 && w < 520) {
+            actionW = 52;
+            gap = 5;
+            icon = 28;
+          }
 
-      // Very narrow: keep click targets decent, shrink icons more
-      if (w > 0 && w < 420) {
-        actionW = 52; // keep tap area acceptable
-        gap = 5;
-        icon = 28;
-      }
+          // Very narrow: keep click targets decent, shrink icons more
+          if (w > 0 && w < 420) {
+            actionW = 52; // keep tap area acceptable
+            gap = 5;
+            icon = 28;
+          }
 
-      this.style.setProperty("--ah-action-w", `${actionW}px`);
-      this.style.setProperty("--ah-action-gap", `${gap}px`);
-      this.style.setProperty("--ah-action-icon", `${icon}px`);
-    }
+          // Default: arrows and stop follow responsive actionW
+          let arrowsW = actionW;
+          let stopW = actionW;
+
+          // If user provides widths in config, they override responsive
+          const cfgArrows = _toNumberPx(this._config?.arrows_button_width);
+          const cfgStop = _toNumberPx(this._config?.stop_button_width);
+
+          if (Number.isFinite(cfgArrows)) arrowsW = clampInt(cfgArrows, 40, 140, arrowsW);
+          if (Number.isFinite(cfgStop)) stopW = clampInt(cfgStop, 40, 140, stopW);
+
+          this.style.setProperty("--ah-action-w", `${arrowsW}px`); // arrows
+          this.style.setProperty("--ah-stop-w", `${stopW}px`);     // stop
+          this.style.setProperty("--ah-action-gap", `${gap}px`);
+          this.style.setProperty("--ah-action-icon", `${icon}px`);
+        }
+
 
     _openMoreInfo(entityId) {
       fireEvent(this, "hass-more-info", { entityId });
@@ -540,7 +552,7 @@ const presetCss = stylePresetCss(this._config.style);
 
       this.shadowRoot.innerHTML = `
         <style>
-          :host { display:block; --ah-row-height: ${rowH}px; --ah-action-w: 60px; --ah-action-gap: 6px; --ah-action-icon: 32px; }
+          :host { display:block; --ah-row-height: ${rowH}px; --ah-action-w: 60px; --ah-stop-w: 60px; --ah-action-gap: 6px; --ah-action-icon: 32px; }
 
           ha-card{
             padding: 0;
@@ -558,7 +570,7 @@ const presetCss = stylePresetCss(this._config.style);
 
           .row{
             display:grid;
-            grid-template-columns: 48px 1fr var(--ah-action-w) var(--ah-action-w) var(--ah-action-w);
+            grid-template-columns: 48px 1fr var(--ah-action-w) var(--ah-stop-w) var(--ah-action-w);
             align-items:center;
             column-gap: var(--ah-action-gap);
             height:var(--ah-row-height);
@@ -631,6 +643,7 @@ const presetCss = stylePresetCss(this._config.style);
             transition: background-color 120ms ease;
             color: var(--primary-text-color); /* ✅ avoid HA default blue */
           }
+          .stopBtn{ width: var(--ah-stop-w); }
           .actionBtn:hover{ background: color-mix(in oklab, currentColor 12%, transparent); }
           .actionBtn:active{ background: color-mix(in oklab, currentColor 18%, transparent); }
           
@@ -745,7 +758,7 @@ const presetCss = stylePresetCss(this._config.style);
             <ha-icon icon="mdi:arrow-up"></ha-icon>
           </button>
 
-          <button class="actionBtn" data-action="stop" aria-label="Stop" tabindex="-1" type="button">
+          <button class="actionBtn stopBtn" data-action="stop" aria-label="Stop" tabindex="-1" type="button">
             <ha-icon icon="mdi:stop"></ha-icon>
           </button>
 
@@ -925,6 +938,8 @@ const presetCss = stylePresetCss(this._config.style);
         height_mode: "row", // row | total
         row_height: 50, // px (default, min 50)
         target_total_height: "", // px (used when height_mode=total)
+        arrows_button_width: "", // px (optional)
+        stop_button_width: "", // px (optional)
         items: [
           {
             entity: "cover.example",
@@ -1102,6 +1117,16 @@ const presetCss = stylePresetCss(this._config.style);
           selector: { number: { min: 50, max: 2000, step: 1, mode: "box" } },
         },
         {
+          name: "arrows_button_width",
+          label: "Largeur boutons flèches (ouvrir/fermer)",
+          selector: { number: { min: 40, max: 140, step: 1, mode: "box" } },
+        },
+        {
+          name: "stop_button_width",
+          label: "Largeur bouton STOP",
+          selector: { number: { min: 40, max: 140, step: 1, mode: "box" } },
+        },
+        {
           name: "La hauteur saisie correspond à la hauteur totale de la carte",
           label: "Inclure le padding dans la hauteur totale",
           selector: { boolean: {} },
@@ -1126,7 +1151,7 @@ const presetCss = stylePresetCss(this._config.style);
         const merged = { ...this._config, ...v, type: "custom:activhome-cover-stack" };
 
         // Clean empties
-        ["theme", "card_style", "default_font_size", "accent_color"].forEach((k) => {
+        ["theme", "card_style", "default_font_size", "accent_color", "arrows_button_width", "stop_button_width"].forEach((k) => {
           if (merged[k] === "" || merged[k] == null) delete merged[k];
         });
 
@@ -1211,6 +1236,8 @@ const presetCss = stylePresetCss(this._config.style);
         height_mode: this._config.height_mode || "row",
         row_height: this._config.row_height ?? 50,
         target_total_height: this._config.target_total_height ?? "",
+        arrows_button_width: this._config.arrows_button_width ?? "",
+        stop_button_width: this._config.stop_button_width ?? "",
         target_total_includes_padding: (this._config.target_total_includes_padding !== false),
         accent_color: this._config.accent_color || "",
         card_style: this._config.card_style || "",
